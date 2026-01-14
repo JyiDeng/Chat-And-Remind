@@ -1,0 +1,14 @@
+
+services:
+  chat-app:
+    build: .
+    container_name: chat-assistant
+    ports:
+      - "1342:1342"
+    volumes:
+      - ./chat_history.json:/app/chat_history.json
+    environment:
+      - API_KEY=${API_KEY}
+    env_file:
+      - .env
+    restart: unless-stopped
