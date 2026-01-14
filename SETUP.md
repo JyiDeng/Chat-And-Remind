@@ -1,183 +1,183 @@
-# 聊天助手项目
+# 聊天助手项目（基于 Flask + Gunicorn + WSGI）
 
-这是一个基于Flask的简易聊天助手应用，集成了SiliconFlow API，具有定时任务功能。
+这是一个基于 Flask 的简易聊天助手应用，集成 SiliconFlow API，带定时任务（APScheduler）与生产级 WSGI 部署（Gunicorn）。
 
 ## 功能特点
 
-1. **聊天对话**：用户可以随时与聊天助手进行对话
-2. **定时任务**：每15分钟自动触发一次，助手会主动发送提醒消息
-3. **简易Web UI**：提供简洁的聊天界面，助手消息在左侧，用户消息在右侧
-4. **消息持久化**：所有聊天记录保存在JSON文件中
+1. 聊天对话：用户可与助手实时对话
+2. 定时提醒：按 Cron 计划定期自动发送消息
+3. 简易 Web UI：静态页面直出，开箱即用
+4. 持久化：聊天历史保存在 JSON 文件
+5. 生产部署：内置 `wsgi.py` 与 `start_production.sh`
 
 ## 项目结构
 
 ```
 my_workflow/
-├── app.py                 # Flask应用主文件
-├── chat_service.py        # 聊天服务和历史管理
-├── scheduler.py           # 定时任务配置
-├── config.py              # 配置文件
-├── requirements.txt       # Python依赖
-├── Dockerfile             # Docker镜像配置
-├── docker-compose.yml     # Docker Compose配置
-├── .env.example           # 环境变量示例
-├── .gitignore            # Git忽略文件
-└── static/               # 静态文件
-    ├── index.html        # 主页面
-    ├── style.css         # 样式文件
-    └── script.js         # 前端脚本
+├── app.py                 # Flask 应用主文件（开发直跑）
+├── wsgi.py                # 生产入口（Gunicorn 使用：wsgi:app）
+├── chat_service.py        # 调用 SiliconFlow API 与历史管理
+├── scheduler.py           # 定时任务调度（APScheduler）
+├── config.py              # 配置（API、模型、Cron 等）
+├── chat_history.json      # 聊天历史数据
+├── requirements.txt       # Python 依赖
+├── start_production.sh    # 生产启动脚本（Gunicorn）
+├── Dockerfile             # Docker 镜像配置（Gunicorn）
+├── docker-compose.yml     # Docker Compose 配置
+├── NETWORK_SETUP.md       # 公网访问/反向代理/HTTPS 指南
+├── README.md              # 项目说明
+├── .env.example           # 环境变量示例（复制为 .env）
+├── .env                   # 本地环境变量（不提交）
+└── static/                # 前端静态文件
+    ├── index.html
+    ├── style.css
+    └── script.js
 ```
 
-## 快速开始
+## 环境准备
 
-### 方法一：本地运行
-
-1. **安装依赖**
+1) Python 3.11+（或 Docker）
+2) 安装依赖
 
 ```bash
 cd my_workflow
 pip install -r requirements.txt
 ```
 
-2. **配置API密钥**
-
-复制 `.env.example` 为 `.env` 并填入你的SiliconFlow API密钥：
+3) 配置环境变量
 
 ```bash
 cp .env.example .env
-# 编辑 .env 文件，填入你的API_KEY
+# 编辑 .env，设置你的 SiliconFlow API_KEY
 ```
 
-3. **运行应用**
+`.env` 关键项：
+
+- `API_KEY`：SiliconFlow API 密钥
+
+## 本地开发运行（Flask 自带服务器）
+
+用于开发调试，包含热重载与简化日志：
 
 ```bash
 python app.py
 ```
 
-4. **访问应用**
+访问：http://localhost:1342
 
-打开浏览器访问：http://localhost:1342
+说明：开发模式直接在 `app.py` 中启动 APScheduler；生产模式统一由 `wsgi.py` 控制（避免多进程/多 Worker 重复执行）。
 
-### 方法二：Docker运行
+## 生产运行（Gunicorn + WSGI）
 
-1. **配置环境变量**
+生产环境请使用 Gunicorn 运行 `wsgi:app`。项目已内置脚本并在 Docker 中默认启用。
+
+推荐单 Worker（多线程）以确保定时任务只在一个进程内运行：
 
 ```bash
-cp .env.example .env
-# 编辑 .env 文件，填入你的API_KEY
+chmod +x start_production.sh
+./start_production.sh
 ```
 
-2. **构建并运行**
+或直接执行命令：
+
+```bash
+gunicorn -w 1 --threads 4 -b 0.0.0.0:1342 --timeout 120 wsgi:app
+```
+
+关于定时任务与多 Worker：
+
+- `wsgi.py` 内通过 `GUNICORN_WORKER_ID` 判断，仅在第一个 Worker 中启动调度器，避免重复执行。
+- 若使用多个 Worker，确保调度器只在一个进程内启动；本项目默认通过单 Worker 保守处理。
+
+## Docker 部署
+
+使用 Compose 一键启动（已映射聊天历史为卷，持久化保存）：
 
 ```bash
 docker-compose up -d
 ```
 
-3. **访问应用**
-
-打开浏览器访问：http://localhost:1342
-
-4. **查看日志**
+常用命令：
 
 ```bash
 docker-compose logs -f
-```
-
-5. **停止应用**
-
-```bash
 docker-compose down
 ```
 
-## API接口
+访问：http://localhost:1342
 
-### 1. 发送消息
+## API 接口
 
-- **URL**: `/api/chat`
-- **方法**: POST
-- **请求体**:
+1) 发送消息
+
+- 路径：`/api/chat`
+- 方法：POST
+- 请求体：
 ```json
-{
-  "message": "用户消息内容"
-}
+{ "message": "用户消息内容" }
 ```
-- **响应**:
+- 响应：
 ```json
-{
-  "success": true,
-  "reply": "助手回复内容"
-}
+{ "success": true, "reply": "助手回复内容" }
 ```
 
-### 2. 获取历史记录
+2) 获取历史记录
 
-- **URL**: `/api/history`
-- **方法**: GET
-- **响应**:
+- 路径：`/api/history`
+- 方法：GET
+- 响应：
 ```json
 {
   "success": true,
   "messages": [
-    {
-      "role": "user",
-      "content": "消息内容",
-      "timestamp": "2026-01-14T10:30:00",
-      "is_scheduled": false
-    }
+    { "role": "user", "content": "...", "timestamp": "...", "is_scheduled": false }
   ]
 }
 ```
 
-### 3. 健康检查
+3) 健康检查
 
-- **URL**: `/api/health`
-- **方法**: GET
-- **响应**:
+- 路径：`/api/health`
+- 方法：GET
+- 响应：
 ```json
-{
-  "status": "ok",
-  "scheduler_running": true
-}
+{ "status": "ok", "scheduler_running": true }
 ```
 
-## 配置说明
+## 配置说明（config.py）
 
-在 `config.py` 中可以修改以下配置：
+- `API_KEY` / `API_URL` / `MODEL` / `SYSTEM_PROMPT`
+- Cron：`CRON_MINUTE` `CRON_HOUR` `CRON_DAY` `CRON_MONTH` `CRON_DAY_OF_WEEK`
+- `SCHEDULED_MESSAGE_PROMPT`：定时任务提示词
+- `CHAT_HISTORY_FILE`：聊天记录文件路径
 
-- `MODEL`: 使用的AI模型
-- `SYSTEM_PROMPT`: 系统提示词
-- `SCHEDULE_INTERVAL_MINUTES`: 定时任务间隔（分钟）
-- `SCHEDULED_MESSAGE_PROMPT`: 定时任务的提示词
+说明：当前 Cron 在 `config.py` 内以常量形式配置，如需通过环境变量控制，可按需改造为 `os.getenv` 读取。
 
-## 定时任务
+## 公网访问/反向代理/HTTPS
 
-定时任务使用cron表达式配置，默认每15分钟触发一次（在每小时的第0、15、30、45分钟）。
+如需公网访问、Nginx 反代、Systemd 服务与 HTTPS 配置，请参考 `NETWORK_SETUP.md`。
 
-触发时，助手会根据配置的提示词生成消息并自动保存到聊天历史中。前端会每30秒自动刷新消息列表，以显示定时任务产生的消息。
+## 常见问题（FAQ）
 
-## 技术栈
+1) 定时任务重复触发/多次执行？
+- 使用单 Worker（`-w 1`），或确保仅一个进程启动调度器。
+- 保持通过 `wsgi.py` 启动应用（Gunicorn 命令使用 `wsgi:app`）。
 
-- **后端**: Flask + APScheduler
-- **前端**: 原生HTML/CSS/JavaScript
-- **API**: SiliconFlow Chat API
-- **容器化**: Docker + Docker Compose
+2) 无法调用 API？
+- 检查 `.env` 中 `API_KEY` 是否正确；网络是否可访问 SiliconFlow。
 
-## 注意事项
+3) 聊天记录未保存/丢失？
+- 确认进程有写权限；Docker 下已将 `chat_history.json` 映射为卷。
 
-1. 请确保API_KEY正确配置，否则无法调用聊天API
-2. 聊天历史保存在 `chat_history.json` 文件中，请勿删除
-3. Docker运行时，聊天历史文件会通过卷挂载持久化
-4. 定时任务在后台运行，不会阻塞主应用
+## 开发提示
 
-## 开发调试
+如需调试：
 
-启用Flask调试模式（仅用于开发环境）：
-
-在 `app.py` 中修改最后一行：
 ```python
+# app.py 末尾（仅开发环境）：
 app.run(host='0.0.0.0', port=1342, debug=True)
 ```
 
-## 许可证
+---
 
 MIT License
